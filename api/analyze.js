@@ -22,7 +22,6 @@ async function getBSSCBalance(address) {
         params: [address],
     };
 
-    // Server-side fetch bypasses browser-enforced CORS issues
     const rpcRes = await fetch(BSSC_RPC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -40,7 +39,7 @@ async function getBSSCBalance(address) {
     const balanceLamports = rpcData.result.value;
     const balanceBSSC = balanceLamports / 1000000000;
     
-    return `RPC Data: The current BSSC balance for address ${address} is ${balanceBSSC} BSSC Testnet Faucet Token.`;
+    return `RPC Data: The current BSSC balance for address ${address} is ${balanceBSSC} BSSC Testnet Faucet Token (If the query was an address).`;
 
   } catch (err) {
     console.error('Server-side RPC Fetch Error:', err);
@@ -64,22 +63,28 @@ export default async function handler(req, res) {
 
   try {
     let context = '';
-    // Simple heuristic for checking if the query is an address
+    // Simple heuristic for checking if the query is an address (Solana addresses are long)
     const isAddress = query.length >= 30 && !query.includes(' ') && !query.includes('?');
-    let useGoogleSearchTool = false;
+    // Enable Google Search for all non-address queries (for general BSSC info or other questions)
+    let useGoogleSearchTool = !isAddress; 
 
     if (isAddress) {
       context = await getBSSCBalance(query);
-    } else {
-      useGoogleSearchTool = true;
+      // Even if it is an address, we enable Google Search grounding 
+      // to ensure we can get transaction details or fallback BSSC information
+      useGoogleSearchTool = true; 
     }
     
-    // SYSTEM INSTRUCTIONS
-    const systemInstruction = `You are an AI assistant specialized in the BSSC blockchain.
-    1. The BSSC network is a fork built on the **Solana blockchain**.
-    2. The native token used is the **BSSC Testnet Faucet Token** (used only for testing and has **no real-world monetary value**).
-    3. Your primary goal is to **analyze the provided data** (either RPC balance data or context from Google Search) and the user's query, and **explain the information in simple, non-technical words**.
-    4. **Crucially:** If RPC data is available in the Internal Context, clearly state the balance. If it's not an address or RPC failed, use Google Search to provide general context about BSSC or the transaction hash.`;
+    // --- System Instruction for Professional Output ---
+    const systemInstruction = `You are a professional BSSC Blockchain Analyst and AI Assistant. Your response must be clean, concise, and professional.
+    1. BSSC Network: It is a fork built on the **Solana blockchain**.
+    2. BSSC Token: The native token is the **BSSC Testnet Faucet Token**, used strictly for testing and has **no real-world monetary value**.
+    3. Query Handling:
+        - If the query is an address, prioritize the "Internal Context" (RPC Data) to report the balance first.
+        - If the query is a transaction hash, use the available Google Search grounding (explorer data) for analysis.
+        - If the query is general (e.g., "what is BSSC?"), use Google Search grounding (website/GitHub info) to provide the most accurate, up-to-date answer.
+        - If the query is unrelated to BSSC, answer it professionally using the Gemini's general knowledge and grounding tools.
+    4. Formatting: **NEVER use triple asterisks (***), bullet points, or markdown headings in your final answer.** Use clear paragraphs and bolding for emphasis.`;
 
     const payload = {
       contents: [
@@ -92,7 +97,7 @@ export default async function handler(req, res) {
       systemInstruction: {
         parts: [{ text: systemInstruction }]
       },
-      // Conditionally enable Google Search tool
+      // Google Search is now always enabled for rich context and general questions
       ...(useGoogleSearchTool && { tools: [{ "google_search": {} }] })
     };
 
@@ -112,7 +117,7 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: `Gemini API Error: ${data.error.message}` });
     }
     
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from the model.';
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Error: No response from the AI model.';
     res.json({ answer: text });
 
   } catch (err) {
